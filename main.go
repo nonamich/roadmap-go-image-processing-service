@@ -9,9 +9,6 @@ import (
 
 func main() {
 	env.Load()
-
-	database.InitDatabase()
-	defer database.DB.Close()
-
+	defer database.InitDatabase().Close()
 	server.HttpServe()
 }

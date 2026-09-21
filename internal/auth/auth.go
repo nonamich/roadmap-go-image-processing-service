@@ -16,8 +16,13 @@ func getSecret() string {
 }
 
 func JwtDecode(bearerToken string) (*jwt.Token, error) {
+	secret := getSecret()
 	token, err := jwt.Parse(bearerToken, func(token *jwt.Token) (any, error) {
-		return getSecret(), nil
+		if token.Method != jwt.SigningMethodHS256 {
+			return nil, jwt.ErrSignatureInvalid
+		}
+
+		return []byte(secret), nil
 	})
 
 	if err != nil {
@@ -31,7 +36,7 @@ func JwtEncode(user UserPackage.User) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"Username": user.Username,
 		"iat":      time.Now().Unix(),
-		"exp":      time.Now().Add(time.Second).Unix(),
+		"exp":      time.Now().Add(time.Hour).Unix(),
 	})
 
 	secret := getSecret()
