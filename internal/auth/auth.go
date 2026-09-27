@@ -1,12 +1,16 @@
-package Auth
+package auth
 
 import (
+	"errors"
+	"fmt"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
-	UserPackage "nonamich/image-processing-service/internal/user"
+	"nonamich/image-processing-service/internal/user"
 )
 
 func getSecret() string {
@@ -32,7 +36,7 @@ func JwtDecode(bearerToken string) (*jwt.Token, error) {
 	return token, nil
 }
 
-func JwtEncode(user UserPackage.User) (string, error) {
+func JwtEncode(user user.User) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"Username": user.Username,
 		"iat":      time.Now().Unix(),
@@ -47,4 +51,48 @@ func JwtEncode(user UserPackage.User) (string, error) {
 	}
 
 	return tokenString, nil
+}
+
+func CurrentUser(r *http.Request) (user.User, error) {
+	authorization := r.Header.Get("Authorization")
+
+	if authorization == "" {
+		return user.User{}, errors.New("No authorization")
+	}
+
+	tokenString := strings.TrimPrefix(authorization, "Bearer ")
+
+	if tokenString == authorization {
+		return user.User{}, errors.New("Invalid authorization format")
+	}
+
+	token, err := JwtDecode(tokenString)
+
+	if err != nil {
+		return user.User{}, errors.New("Unauthorized.")
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+
+	if !ok {
+		return user.User{}, errors.New("Invalid token claims")
+	}
+
+	username, ok := claims["Username"].(string)
+
+	if !ok {
+		return user.User{}, fmt.Errorf("Toke must have username(%s) in claims.", username)
+	}
+
+	foundUser, err := user.FindUserByUsername(username)
+
+	if err != nil {
+		return user.User{}, err
+	}
+
+	if foundUser.ID == 0 {
+		return user.User{}, errors.New("User not found.")
+	}
+
+	return foundUser, nil
 }

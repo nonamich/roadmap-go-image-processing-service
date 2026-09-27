@@ -1,16 +1,10 @@
-package UserRepository
+package user
 
 import (
 	"database/sql"
 	"errors"
 	"nonamich/image-processing-service/internal/database"
 )
-
-type User struct {
-	ID       int64
-	Username string
-	Password string
-}
 
 func FindUserByUsername(username string) (User, error) {
 	user := User{}
@@ -30,7 +24,7 @@ func FindUserByUsername(username string) (User, error) {
 	return user, nil
 }
 
-func InsertUser(username string, password string) (User, error) {
+func SaveUser(username string, password string) (User, error) {
 	result, err := database.DB.Exec(
 		`
 			INSERT INTO users (username, password)

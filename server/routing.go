@@ -2,10 +2,11 @@ package server
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
-	Auth "nonamich/image-processing-service/internal/auth"
-	UserRepository "nonamich/image-processing-service/internal/user"
-	"strings"
+	"nonamich/image-processing-service/internal/auth"
+	"nonamich/image-processing-service/internal/user"
+	"os"
 )
 
 func registerRoute(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +36,7 @@ func registerRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existedUser, err := UserRepository.FindUserByUsername(username)
+	existedUser, err := user.FindUserByUsername(username)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -49,7 +50,7 @@ func registerRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newUser, err := UserRepository.InsertUser(username, password)
+	newUser, err := user.SaveUser(username, password)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -60,7 +61,7 @@ func registerRoute(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 
-	token, err := Auth.JwtEncode(newUser)
+	token, err := auth.JwtEncode(newUser)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -74,39 +75,17 @@ func registerRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func meRoute(w http.ResponseWriter, r *http.Request) {
-	authorization := r.Header.Get("Authorization")
-
-	if authorization == "" {
-		http.Error(w, "No authorization", http.StatusUnauthorized)
-
-		return
-	}
-
-	tokenString := strings.TrimPrefix(authorization, "Bearer ")
-
-	if tokenString == authorization {
-		http.Error(w, "Invalid authorization format", http.StatusUnauthorized)
-
-		return
-	}
-
-	token, err := Auth.JwtDecode(tokenString)
+	user, err := auth.CurrentUser(r)
 
 	if err != nil {
-		http.Error(w, "Unauthorized.", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 
-	err = json.NewEncoder(w).Encode(token.Claims)
-
-	if err != nil {
-		http.Error(w, "Failed to encode claims", http.StatusInternalServerError)
-
-		return
-	}
+	json.NewEncoder(w).Encode(user)
 }
 
 func loginRoute(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +115,7 @@ func loginRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := UserRepository.FindUserByUsername(username)
+	user, err := user.FindUserByUsername(username)
 
 	if user.ID == 0 {
 		http.Error(w, "user not found", http.StatusNotFound)
@@ -156,11 +135,31 @@ func loginRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, _ := Auth.JwtEncode(user)
+	token, _ := auth.JwtEncode(user)
 
 	w.Header().Set("Content-Type", "application/json")
+
 	json.NewEncoder(w).Encode(map[string]string{
 		"token": token,
 	})
 
+}
+
+func uploadRoute(w http.ResponseWriter, r *http.Request) {
+	user, err := auth.CurrentUser(r)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	file, header, _ := r.FormFile("file")
+	fileBytes, _ := io.ReadAll(file)
+
+	os.WriteFile(header.Filename, fileBytes, 0644)
+
+	json.NewEncoder(w).Encode(user)
 }
