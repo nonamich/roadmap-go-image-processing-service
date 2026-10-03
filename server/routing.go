@@ -13,6 +13,7 @@ import (
 	"nonamich/image-processing-service/internal/uploader"
 	"nonamich/image-processing-service/internal/user"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -152,7 +153,7 @@ func loginRoute(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func uploadRoute(w http.ResponseWriter, r *http.Request) {
+func uploadFileRoute(w http.ResponseWriter, r *http.Request) {
 	user, err := auth.CurrentUser(r)
 
 	if err != nil {
@@ -204,7 +205,93 @@ func uploadRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	os.WriteFile("./storage/public/images/"+uploadedFile.Uuid+"."+ext, fileBytes, 0644)
+	os.WriteFile(uploader.GetUploadsDir()+uploadedFile.Uuid+"."+ext, fileBytes, 0644)
 
 	json.NewEncoder(w).Encode(uploadedFile)
+}
+
+func getFileRoute(w http.ResponseWriter, r *http.Request) {
+	user, err := auth.CurrentUser(r)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	uuid := r.PathValue("uuid")
+
+	if uuid == "" {
+		http.Error(w, "uuid must be string", http.StatusBadRequest)
+
+		return
+	}
+
+	file, err := uploader.FindFileByUuid(uuid)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	if file.ID == 0 || user.ID != file.UserId {
+		http.Error(w, "Image not found", http.StatusNotFound)
+
+		return
+	}
+
+	ext := strings.Split(file.Mime, "/")[1]
+	dir := uploader.GetUploadsDir()
+	filepath := dir + file.Uuid + "." + ext
+
+	fileBytes, err := os.ReadFile(filepath)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Disposition", `inline; filename="`+file.Metadata.Original+`"`)
+	w.Header().Set("Content-Type", file.Mime)
+
+	w.Write(fileBytes)
+}
+
+func getFilesRoute(w http.ResponseWriter, r *http.Request) {
+	user, err := auth.CurrentUser(r)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	page, err := strconv.Atoi(r.URL.Query().Get("page"))
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	files, err := uploader.FindFilesByUserId(user.ID, page, limit)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(files)
 }
