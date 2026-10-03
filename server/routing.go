@@ -1,12 +1,19 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"net/http"
 	"nonamich/image-processing-service/internal/auth"
+	"nonamich/image-processing-service/internal/uploader"
 	"nonamich/image-processing-service/internal/user"
 	"os"
+	"strings"
 )
 
 func registerRoute(w http.ResponseWriter, r *http.Request) {
@@ -156,10 +163,48 @@ func uploadRoute(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 
-	file, header, _ := r.FormFile("file")
+	file, header, err := r.FormFile("file")
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
 	fileBytes, _ := io.ReadAll(file)
+	mime := http.DetectContentType(fileBytes)
+	fileType := strings.Split(mime, "/")[0]
+	ext := strings.Split(mime, "/")[1]
 
-	os.WriteFile(header.Filename, fileBytes, 0644)
+	if fileType != "image" {
+		http.Error(w, "File must be image", http.StatusBadRequest)
 
-	json.NewEncoder(w).Encode(user)
+		return
+	}
+
+	config, _, err := image.DecodeConfig(bytes.NewReader(fileBytes))
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	metadata := uploader.FileMetadata{
+		Width:    config.Width,
+		Height:   config.Height,
+		Original: header.Filename,
+		Size:     uint64(header.Size),
+	}
+	uploadedFile, err := uploader.SaveFile(user, mime, metadata)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	os.WriteFile("./storage/public/images/"+uploadedFile.Uuid+"."+ext, fileBytes, 0644)
+
+	json.NewEncoder(w).Encode(uploadedFile)
 }

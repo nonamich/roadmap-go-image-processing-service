@@ -6,10 +6,15 @@ import (
 )
 
 func HttpServe() {
-	http.HandleFunc("/register", registerRoute)
-	http.HandleFunc("/me", meRoute)
-	http.HandleFunc("/login", loginRoute)
-	http.HandleFunc("/images", uploadRoute)
+	http.HandleFunc("POST /register", registerRoute)
+	http.HandleFunc("GET /me", meRoute)
+	http.HandleFunc("POST /login", loginRoute)
+	http.HandleFunc("POST /images", uploadRoute)
+
+	http.Handle("GET /", http.StripPrefix(
+		"/",
+		http.FileServer(http.Dir("storage/public")),
+	))
 
 	log.Print("Server stared http://localhost:8080")
 

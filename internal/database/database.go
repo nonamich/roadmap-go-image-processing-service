@@ -39,9 +39,10 @@ func InitDatabase() *sql.DB {
 		}
 
 		_, err = db.Exec(`
-			CREATE TABLE IF NOT EXISTS images (
+			CREATE TABLE IF NOT EXISTS files (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				uuid TEXT NOT NULL UNIQUE,
+				mime TEXT NOT NULL,
 				metadata JSON NOT NULL,
 				user_id INTEGER NOT NULL,
 				CONSTRAINT fk_images_user
