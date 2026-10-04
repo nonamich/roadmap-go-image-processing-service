@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"nonamich/image-processing-service/internal/auth"
+	"nonamich/image-processing-service/internal/transform"
 	"nonamich/image-processing-service/internal/uploader"
 	"nonamich/image-processing-service/internal/user"
 	"os"
@@ -219,7 +220,8 @@ func getFileRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uuid := r.PathValue("uuid")
+	filename := r.PathValue("filename")
+	uuid, reqExt, _ := strings.Cut(filename, ".")
 
 	if uuid == "" {
 		http.Error(w, "uuid must be string", http.StatusBadRequest)
@@ -242,6 +244,13 @@ func getFileRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ext := strings.Split(file.Mime, "/")[1]
+
+	if reqExt != "" && !strings.EqualFold(reqExt, ext) {
+		http.Error(w, "Image not found", http.StatusNotFound)
+
+		return
+	}
+
 	dir := uploader.GetUploadsDir()
 	filepath := dir + file.Uuid + "." + ext
 
@@ -253,10 +262,78 @@ func getFileRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Disposition", `inline; filename="`+file.Metadata.Original+`"`)
-	w.Header().Set("Content-Type", file.Mime)
+	if reqExt != "" {
+		w.Header().Set("Content-Disposition", `inline; filename="`+file.Metadata.Original+`"`)
+		w.Header().Set("Content-Type", file.Mime)
 
-	w.Write(fileBytes)
+		w.Write(fileBytes)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(file)
+}
+
+func transformRoute(w http.ResponseWriter, r *http.Request) {
+	user, err := auth.CurrentUser(r)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	contentType := r.Header.Get("Content-Type")
+
+	if contentType != "application/json" {
+		http.Error(w, "Request must be as json", http.StatusBadRequest)
+
+		return
+	}
+
+	uuid := r.PathValue("uuid")
+
+	if uuid == "" {
+		http.Error(w, "uuid must be string", http.StatusBadRequest)
+
+		return
+	}
+
+	file, err := uploader.FindFileByUuid(uuid)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	if file.ID == 0 || user.ID != file.UserId {
+		http.Error(w, "Image not found", http.StatusNotFound)
+
+		return
+	}
+
+	var transformRequest transform.TransformRequest
+	body, _ := io.ReadAll(r.Body)
+
+	err = json.Unmarshal(
+		body,
+		&transformRequest,
+	)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	transform.Transform(transformRequest.Transformations, file)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+
+	json.NewEncoder(w).Encode(file)
 }
 
 func getFilesRoute(w http.ResponseWriter, r *http.Request) {
@@ -284,7 +361,7 @@ func getFilesRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	files, err := uploader.FindFilesByUserId(user.ID, page, limit)
+	files, total, err := uploader.FindFilesByUserId(user.ID, page, limit)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -293,5 +370,8 @@ func getFilesRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(files)
+	json.NewEncoder(w).Encode(map[string]any{
+		"total": total,
+		"data":  files,
+	})
 }

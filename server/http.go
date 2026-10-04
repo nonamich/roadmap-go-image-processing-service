@@ -10,7 +10,8 @@ func HttpServe() {
 	http.HandleFunc("GET /me", meRoute)
 	http.HandleFunc("POST /login", loginRoute)
 	http.HandleFunc("POST /images", uploadFileRoute)
-	http.HandleFunc("GET /images/{uuid}", getFileRoute)
+	http.HandleFunc("GET /images/{filename}", getFileRoute)
+	http.HandleFunc("POST /images/{uuid}/transform", transformRoute)
 	http.HandleFunc("GET /images", getFilesRoute)
 
 	log.Print("Server stared http://localhost:8080")

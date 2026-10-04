@@ -73,9 +73,14 @@ func SaveFile(user user.User, mime string, metadata FileMetadata) (UploadedFile,
 	}, nil
 }
 
-func FindFilesByUserId(userId int64, page int, limit int) ([]UploadedFile, error) {
-	offset := page
-	queryResult, err := database.DB.Query(
+func FindFilesByUserId(userId int64, page int, limit int) ([]UploadedFile, int, error) {
+	total := 0
+	limit = max(limit, 1)
+	limit = min(limit, 50)
+	page = max(page, 1)
+	files := []UploadedFile{}
+	offset := limit*page - limit
+	rows, err := database.DB.Query(
 		`
 			SELECT ID, uuid, mime, user_id, metadata
 			FROM files
@@ -89,22 +94,21 @@ func FindFilesByUserId(userId int64, page int, limit int) ([]UploadedFile, error
 		offset,
 	)
 
-	if err := queryResult.Err(); err != nil {
-		return nil, err
+	if err := rows.Err(); err != nil {
+		return files, total, err
 	}
 
-	defer queryResult.Close()
+	defer rows.Close()
 
 	if err != nil {
-		return nil, err
+		return files, total, err
 	}
-	var files []UploadedFile
 
-	for queryResult.Next() {
+	for rows.Next() {
 		var file UploadedFile
 		var metadataJSON []byte
 
-		err := queryResult.Scan(
+		err := rows.Scan(
 			&file.ID,
 			&file.Uuid,
 			&file.Mime,
@@ -113,17 +117,26 @@ func FindFilesByUserId(userId int64, page int, limit int) ([]UploadedFile, error
 		)
 
 		if err != nil {
-			return nil, err
+			return files, total, err
 		}
 
 		err = json.Unmarshal(metadataJSON, &file.Metadata)
 
 		if err != nil {
-			return nil, err
+			return files, total, err
 		}
 
 		files = append(files, file)
 	}
 
-	return files, nil
+	database.DB.QueryRow(
+		`
+			SELECT COUNT(ID)
+			FROM files
+			WHERE user_id = ?
+		`,
+		userId,
+	).Scan(&total)
+
+	return files, total, nil
 }
