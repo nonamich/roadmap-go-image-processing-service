@@ -165,7 +165,7 @@ func uploadFileRoute(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 
-	file, header, err := r.FormFile("file")
+	multipartFile, header, err := r.FormFile("file")
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -173,18 +173,17 @@ func uploadFileRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fileBytes, _ := io.ReadAll(file)
+	fileBytes, _ := io.ReadAll(multipartFile)
 	mime := http.DetectContentType(fileBytes)
-	fileType := strings.Split(mime, "/")[0]
-	ext := strings.Split(mime, "/")[1]
+	fileType, ext, ok := strings.Cut(mime, "/")
 
-	if fileType != "image" {
-		http.Error(w, "File must be image", http.StatusBadRequest)
-
+	if !ok || fileType != "image" {
+		http.Error(w, "Invalid MIME type", http.StatusBadRequest)
 		return
 	}
 
-	config, _, err := image.DecodeConfig(bytes.NewReader(fileBytes))
+	fileBytesReader := bytes.NewReader(fileBytes)
+	imageConfig, _, err := image.DecodeConfig(fileBytesReader)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -193,12 +192,12 @@ func uploadFileRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	metadata := uploader.FileMetadata{
-		Width:    config.Width,
-		Height:   config.Height,
+		Width:    imageConfig.Width,
+		Height:   imageConfig.Height,
 		Original: header.Filename,
 		Size:     uint64(header.Size),
 	}
-	uploadedFile, err := uploader.SaveFile(user, mime, metadata)
+	uploadedFileData, err := uploader.SaveFile(user, mime, metadata)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -206,9 +205,8 @@ func uploadFileRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	os.WriteFile(uploader.GetUploadsDir()+uploadedFile.Uuid+"."+ext, fileBytes, 0644)
-
-	json.NewEncoder(w).Encode(uploadedFile)
+	os.WriteFile(uploader.GetUploadsDir()+uploadedFileData.Uuid+"."+ext, fileBytes, 0644)
+	json.NewEncoder(w).Encode(uploadedFileData)
 }
 
 func getFileRoute(w http.ResponseWriter, r *http.Request) {
@@ -300,7 +298,7 @@ func transformRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, err := uploader.FindFileByUuid(uuid)
+	uploadedFileData, err := uploader.FindFileByUuid(uuid)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -308,7 +306,7 @@ func transformRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if file.ID == 0 || user.ID != file.UserId {
+	if uploadedFileData.ID == 0 || user.ID != uploadedFileData.UserId {
 		http.Error(w, "Image not found", http.StatusNotFound)
 
 		return
@@ -328,12 +326,18 @@ func transformRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	transform.Transform(transformRequest.Transformations, file)
+	uploadedFileData, err = transform.Transform(transformRequest.Transformations, uploadedFileData)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 
-	json.NewEncoder(w).Encode(file)
+	json.NewEncoder(w).Encode(uploadedFileData)
 }
 
 func getFilesRoute(w http.ResponseWriter, r *http.Request) {
